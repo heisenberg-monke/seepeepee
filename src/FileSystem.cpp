@@ -2,7 +2,6 @@
 
 #include <iostream>
 
-
 namespace seepp
 {
     void FileSystem::extractVisibleText(const pugi::xml_node &node, std::string &output) const
@@ -29,12 +28,21 @@ namespace seepp
         }
     }
 
+    std::filesystem::path FileSystem::resolveDir(const std::filesystem::path &path) const
+    {
+        if(!path.is_absolute())
+            return PROJECT_ROOT / path;
+
+        return path;
+    }
+
     std::string FileSystem::loadXML(const std::filesystem::path &path) const
     {
-        auto filePathStr = path.string();
+        auto filePath = resolveDir(path);
+        auto filePathStr = filePath.string();
 
         pugi::xml_document doc;
-        pugi::xml_parse_result result = doc.load_file(path.c_str());
+        pugi::xml_parse_result result = doc.load_file(filePath.c_str());
 
         if(!result)
             throw std::runtime_error(std::string("Failed to open file: ") + filePathStr);
@@ -46,17 +54,21 @@ namespace seepp
         return content;
     }
 
-    void FileSystem::loadXMLDir(const std::filesystem::path &path) const
+    std::unordered_map<std::filesystem::path, std::string> FileSystem::loadXMLDir(const std::filesystem::path &path) const
     {
-        auto dirPath = std::filesystem::path(PROJECT_ROOT) / path;
+        auto dirPath = resolveDir(path);
 
         if(!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath))
             throw std::runtime_error("Path " + dirPath.string() + " is not a valid directory.");
 
+        std::unordered_map<std::filesystem::path, std::string> files;
+
         for(const auto &entry : std::filesystem::directory_iterator(dirPath))
         {
             if(entry.is_regular_file() && entry.path().extension() == ".xhtml")
-                std::cout << "Entry " << entry.path().string() << " has length " << loadXML(entry).length() << '\n';
+                files[entry.path()] = loadXML(entry.path());
         }
+
+        return files;
     }
 }

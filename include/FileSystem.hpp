@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 
 #include <filesystem>
 
@@ -11,9 +12,10 @@ namespace seepp
     class FileSystem
     {
         void extractVisibleText(const pugi::xml_node &node, std::string &output) const;
+        std::filesystem::path resolveDir(const std::filesystem::path &path) const;
 
     public:
         std::string loadXML(const std::filesystem::path &path) const;
-        void loadXMLDir(const std::filesystem::path &path) const;
+        std::unordered_map<std::filesystem::path, std::string> loadXMLDir(const std::filesystem::path &path) const;
     };
 }
