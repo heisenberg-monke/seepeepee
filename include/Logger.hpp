@@ -37,6 +37,7 @@ namespace seepp
     {
         bool m_debug = false;
         Stream m_out;
+        Stream m_err;
         Stream m_log;
     
         Logger();
@@ -55,11 +56,17 @@ namespace seepp
         void display(const std::string &msg) const;
 
         Stream &log() {
+            m_log << "[INFO] ";
             return m_log;
         }
 
         Stream &display() {
             return m_out;
+        }
+
+        Stream &err() {
+            m_err << "[ERROR] ";
+            return m_err;
         }
     };
 }

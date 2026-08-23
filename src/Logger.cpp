@@ -5,7 +5,7 @@
 namespace seepp
 {
     Logger::Logger()
-        : m_out(&std::cout), m_log(nullptr) {}
+        : m_out(&std::cout), m_log(nullptr), m_err(&std::cerr){}
 
     Logger &Logger::getLogger()
     {

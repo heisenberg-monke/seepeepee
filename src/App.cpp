@@ -1,12 +1,10 @@
 #include "App.hpp"
-#include "Logger.hpp"
 
 #include <algorithm>
 
 #include <fstream>
 
 #include <nlohmann/json.hpp>
-#include <cpp-httplib/httplib.h>
 
 namespace seepp
 {
@@ -21,21 +19,76 @@ namespace seepp
         return result;
     }
 
+    void App::serveRequest(const httplib::Request &req, httplib::Response &res) const
+    {
+        auto htmlPath = m_fs.resolveDir("index.html").string();
+        auto jsPath = m_fs.resolveDir("index.js").string();
+
+        auto serveStaticFile = [&](const std::string &filePath, const std::string &contentType)
+        {
+            std::ifstream file(filePath);
+
+            if(!file)
+            {
+                m_logger.err() << "Could not serve file " << filePath << '\n';
+
+                res.status = 500;
+                res.set_content("500", "text/plain");
+
+                return;
+            }
+
+            std::stringstream buffer;
+
+            buffer << file.rdbuf();
+            res.set_content(buffer.str(), contentType);
+        };
+
+        auto serve404 = [&]()
+        {
+            res.status = 404;
+            res.set_content("404", "text/plain");
+        };
+
+        m_logger.log() << "Received request! Method: " << req.method << ", URL: " << req.target << '\n';
+
+        if(req.method == "POST" && req.target == "/api/search")
+        {
+            m_logger.display() << "Search: " << req.body << '\n';
+            res.set_content("ok", "text/plain");
+        }
+
+        else if(req.method == "GET")
+        {
+            if(req.target == "/" || req.target == "/index.html")
+                serveStaticFile(htmlPath, "text/html; charset=utf-8");
+
+            else if(req.target == "/index.js")
+                serveStaticFile(jsPath, "text/javascript; charset=utf-8");
+
+            else
+                serve404();
+        }
+        
+        else
+            serve404();
+    }
+
+    App::App()
+        : m_logger(Logger::getLogger()) {}
+
     void App::showHelp() const
     {
-        auto &logger = Logger::getLogger();
-
-        logger.display("Usage: {program} [SUBCOMMAND] [OPTIONS]");
-        logger.display("Available commands: ");
-        logger.display("--help | -h                                     : Show this help box.");
-        logger.display("--index <folder> [name] | -i <folder> [name]    : Index a folder and save it as a json.");
-        logger.display("--search <query> | -S <query>                   : search for a query (not implemented yet).");
-        logger.display("--serve | -s [address]                          : start local HTTP server with web interface");
+        m_logger.display("Usage: {program} [SUBCOMMAND] [OPTIONS]");
+        m_logger.display("Available commands: ");
+        m_logger.display("--help | -h                                     : Show this help box.");
+        m_logger.display("--index <folder> [name] | -i <folder> [name]    : Index a folder and save it as a json.");
+        m_logger.display("--search <query> | -S <query>                   : search for a query (not implemented yet).");
+        m_logger.display("--serve | -s [address]                          : start local HTTP server with web interface");
     }
 
     void App::indexFolder(const std::filesystem::path &path, const std::string &jsonName) const
     {
-        auto &logger = Logger::getLogger();
         auto dirPath = m_fs.resolveDir(path);
 
         TermFreqIndex tfIndex;
@@ -43,7 +96,7 @@ namespace seepp
 
         for(const auto &[path, content] : m_fs.loadXMLDir(dirPath))
         {
-            logger.log("Indexing " + path.string() + "...");
+            m_logger.log() << "Indexing " << path << "...";
 
             seepp::Lexer lexer(content);
             TermFreq tf;
@@ -72,7 +125,7 @@ namespace seepp
             
         auto indexPath = m_fs.resolveDir(indexName);
 
-        logger.log("Saving " + indexPath.string() + "...");
+        m_logger.log() << "Saving " << indexPath << "...";
 
         for(const auto &[path, tf] : tfIndex)
             j[path.string()] = tf;
@@ -84,26 +137,26 @@ namespace seepp
 
     void App::search(const std::string &query) const
     {
-        Logger::getLogger().display("Searching is not implemented yet");
+        m_logger.display("Searching is not implemented yet");
     }
 
     void App::createServer(const std::string &address) const
     {
-        auto &logger = Logger::getLogger();
-
         httplib::Server server;
         const int port = 8080;
-        auto path = m_fs.resolveDir("index.html").string();
+        
 
-        server.set_pre_routing_handler([&](const httplib::Request &req, httplib::Response &res)
+        server.Get(R"(.*)", [&](const httplib::Request &req, httplib::Response &res)
         {
-            logger.log() << "[INFO] Received request! Method: " << req.method << ", URL: " << req.target << '\n';
-            res.set_file_content(path, "text/html");
-
-            return httplib::Server::HandlerResponse::Handled;
+            serveRequest(req, res);
         });
 
-        logger.log() << "[INFO] Listening at http://" << address << ":" << port << '\n';
+        server.Post(R"(.*)", [&](const httplib::Request &req, httplib::Response &res)
+        {
+            serveRequest(req, res);
+        });
+
+        m_logger.log() << "Listening at http://" << address << ":" << port << '\n';
 
         if(!server.listen(address, port))
             throw std::runtime_error("Could not start HTTP server");
