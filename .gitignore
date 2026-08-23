@@ -21,3 +21,4 @@ CMakeUserPresets.json
 docs.gl/
 build/
 output.txt
+index*

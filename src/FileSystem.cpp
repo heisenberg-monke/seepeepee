@@ -1,4 +1,5 @@
 #include "FileSystem.hpp"
+#include "Logger.hpp"
 
 #include <iostream>
 
@@ -57,6 +58,7 @@ namespace seepp
     std::unordered_map<std::filesystem::path, std::string> FileSystem::loadXMLDir(const std::filesystem::path &path) const
     {
         auto dirPath = resolveDir(path);
+        auto &logger = Logger::getLogger();
 
         if(!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath))
             throw std::runtime_error("Path " + dirPath.string() + " is not a valid directory.");
@@ -67,6 +69,9 @@ namespace seepp
         {
             if(entry.is_regular_file() && entry.path().extension() == ".xhtml")
                 files[entry.path()] = loadXML(entry.path());
+
+            else
+                logger.log() << "Skipping non-XHTML file " << entry.path();
         }
 
         return files;

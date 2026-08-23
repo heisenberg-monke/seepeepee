@@ -11,7 +11,7 @@ namespace seepp
 
     class Lexer
     {
-        Token curr;
+        Token m_curr;
 
         void trimLeft();
 
@@ -25,7 +25,7 @@ namespace seepp
 
         const Token &getCurr() const
         {
-            return curr;
+            return m_curr;
         }
         
         std::optional<Token> nextToken();

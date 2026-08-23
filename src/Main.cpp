@@ -9,54 +9,70 @@
 
 #include <nlohmann/json.hpp>
 
-using TermFreq = std::unordered_map<std::string, size_t>;
-using TermFreqIndex = std::unordered_map<std::filesystem::path, TermFreq>;
-
 int main(int argc, char **argv)
 {
     try
     {
-        auto upper = [](const seepp::Token &token)
+        if(argc < 2)
+            throw std::runtime_error("No subcommand is given.");
+
+        bool debug = false;
+        bool help = false;
+        std::filesystem::path indexPath;
+        std::string query;
+        std::string jsonName;
+        std::string address;
+
+        for(int i = 1; i < argc; ++i)
         {
-            std::string result(token);
+            std::string arg = argv[i];
 
-            std::transform(result.begin(), result.end(), result.begin(), [](uint8_t c) {
-                return std::toupper(c);
-            });
+            if(arg == "--debug" || arg == "-D")
+                debug = true;
 
-            return result;
-        };
+            if(arg == "--index" || arg == "-I")
+            {
+                if(i + 1 >= argc)
+                    throw std::runtime_error("No folder given for indexing.\n");
 
-        seepp::FileSystem fs;
-        size_t n = 20;
-        TermFreqIndex tfIndex;
-        nlohmann::json j;
+                if(i + 2 < argc && argv[i+2][0] != '-')
+                    jsonName = argv[i+2];
 
-        for(const auto &[path, content] : fs.loadXMLDir("docs.gl/gl4"))
-        {
-            seepp::Lexer lexer(content);
-            TermFreq tf;
+                indexPath = argv[i+1];
+            }
 
-            while(auto token = lexer.nextToken())
-                tf[upper(token.value())]++;
-            
-            std::vector<std::pair<std::string, size_t>> stats(tf.begin(), tf.end());
+            if(arg == "--search" || arg == "-S")
+            {
+                if(i + 1 >= argc)
+                    throw std::runtime_error("No query given to search.\n");
 
-            std::sort(stats.begin(), stats.end(), [](const auto &a, const auto &b) {
-                return a.second > b.second;
-            });
+                query = argv[i+1];
+            }
 
-            tfIndex.try_emplace(path, tf);
+            if(arg == "--help" || arg == "-H")
+                help = true;
 
-            std::cout << path << " has " << tf.size() << " unique tokens.\n";
+            if(arg == "--serve" || arg == "-s")
+                address = (i+1 < argc && argv[i+1][0] != '-') ? argv[i+1] : "127.0.0.1";
         }
 
-        for(const auto &[path, tf] : tfIndex)
-            j[path.string()] = tf;
+        auto &logger = seepp::Logger::getLogger();
 
-        std::ofstream out(std::filesystem::path(PROJECT_ROOT) / "index.json");
+        logger.setDebug(debug);
 
-        out << j.dump(2);
+        seepp::App app;
+
+        if(help)
+            app.showHelp();
+
+        else if(!address.empty())
+            app.createServer(address);
+
+        else if(!indexPath.empty())
+            app.indexFolder(indexPath, jsonName);
+
+        else if(!query.empty())
+            app.search(query);
     }
 
     catch(const std::exception &e)

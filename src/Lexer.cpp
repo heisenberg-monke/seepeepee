@@ -38,22 +38,22 @@ namespace seepp
 
     void Lexer::trimLeft()
     {
-        while(!curr.empty())
+        while(!m_curr.empty())
         {
-            auto it = curr.begin();
-            char32_t c = utf8::next(it, curr.end());
+            auto it = m_curr.begin();
+            char32_t c = utf8::next(it, m_curr.end());
 
             if(!isSpace(c))
                 break;
 
-            curr.remove_prefix(it - curr.begin());
+            m_curr.remove_prefix(it - m_curr.begin());
         }
     }
 
     Token Lexer::chop(size_t n)
     {
-        auto token = curr.substr(0, n);
-        curr.remove_prefix(n);
+        auto token = m_curr.substr(0, n);
+        m_curr.remove_prefix(n);
         return token;
     }
 
@@ -62,10 +62,10 @@ namespace seepp
     {
         size_t n = 0;
         
-        while(n < curr.size())
+        while(n < m_curr.size())
         {
             size_t bytes;
-            char32_t c = peek(curr.substr(n), bytes);
+            char32_t c = peek(m_curr.substr(n), bytes);
 
             if(!predicate(c))
                 break;
@@ -77,17 +77,17 @@ namespace seepp
     }
 
     Lexer::Lexer(const Token &content)
-        : curr(content) {}
+        : m_curr(content) {}
 
     std::optional<Token> Lexer::nextToken()
     {
         chopWhile(isSpace);
 
-        if(curr.empty())
+        if(m_curr.empty())
             return std::nullopt;
 
         size_t bytes;
-        char32_t c = peek(curr, bytes);
+        char32_t c = peek(m_curr, bytes);
 
         if(isDigit(c))
             return chopWhile(isDigit);

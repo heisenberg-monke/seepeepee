@@ -15,6 +15,7 @@ target_include_directories(${PROJECT_NAME}
         external/pugixml/src
         external/utfcpp-4.1.1
         external/json-3.12.0/include
+        external/cpp-httplib
 )
 
 target_link_libraries(${PROJECT_NAME}
