@@ -5,18 +5,25 @@
 
 #include <filesystem>
 
-#include "pugixml.hpp"
+#include "Logger.hpp"
+#include "TfIdf.hpp"
 
 namespace seepp
 {
     class FileSystem
     {
-        void extractVisibleText(const pugi::xml_node &node, std::string &output) const;
-
+        Logger &m_logger;
+        
     public:
+        FileSystem();
+
         std::filesystem::path resolveDir(const std::filesystem::path &path) const;
         
         std::string loadXML(const std::filesystem::path &path) const;
-        std::unordered_map<std::filesystem::path, std::string> loadXMLDir(const std::filesystem::path &path) const;
+        void loadXMLDir(const std::filesystem::path &dirPath, TermFreqIndex &tfIndex) const;
+
+        void loadIndex(const std::filesystem::path &indexPath, TermFreqIndex &tfIndex) const;
+        void checkIndex(const std::filesystem::path &indexPath) const;
+        void saveIndex(const TermFreqIndex &tfIndex, const std::filesystem::path &indexPath) const;
     };
 }

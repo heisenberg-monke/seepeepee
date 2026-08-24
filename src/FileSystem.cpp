@@ -1,33 +1,36 @@
 #include "FileSystem.hpp"
 #include "Logger.hpp"
+#include "Lexer.hpp"
 
+#include <fstream>
 #include <iostream>
+
+#include "pugixml.hpp"
+
+#include <cerrno>
+#include <cstring>
+
+#include <nlohmann/json.hpp>
 
 namespace seepp
 {
-    void FileSystem::extractVisibleText(const pugi::xml_node &node, std::string &output) const
+    static inline void extractVisibleText(const pugi::xml_node &node, std::string &output)
     {
         for(pugi::xml_node child : node.children())
         {
-            if(child.type() == pugi::node_pcdata)
+            if(child.type() == pugi::node_pcdata || child.type() == pugi::node_cdata)
             {
                 output += child.value();
-                continue;
+                output += ' ';
             }
 
-            if(child.type() != pugi::node_element)
-                continue;
-
-            const std::string name = child.name();
-
-            if(name == "script" || name == "style" || name == "head" || name == "noscript" || name == "template")
-                continue;
-
-            output += ' ';
-
-            extractVisibleText(child, output);
+            if(child.type() == pugi::node_element)
+                extractVisibleText(child, output);
         }
     }
+
+    FileSystem::FileSystem()
+        : m_logger(Logger::getLogger()) {}
 
     std::filesystem::path FileSystem::resolveDir(const std::filesystem::path &path) const
     {
@@ -55,25 +58,101 @@ namespace seepp
         return content;
     }
 
-    std::unordered_map<std::filesystem::path, std::string> FileSystem::loadXMLDir(const std::filesystem::path &path) const
+    void FileSystem::loadXMLDir(const std::filesystem::path &path, TermFreqIndex &tfIndex) const
     {
         auto dirPath = resolveDir(path);
-        auto &logger = Logger::getLogger();
+        std::error_code ec;
 
-        if(!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath))
-            throw std::runtime_error("Path " + dirPath.string() + " is not a valid directory.");
-
-        std::unordered_map<std::filesystem::path, std::string> files;
-
-        for(const auto &entry : std::filesystem::directory_iterator(dirPath))
+        for(const auto &entry : std::filesystem::directory_iterator(dirPath, ec))
         {
-            if(entry.is_regular_file() && entry.path().extension() == ".xhtml")
-                files[entry.path()] = loadXML(entry.path());
+            if(ec)
+                throw std::runtime_error("Could not read directory: " + dirPath.string() + ": " + ec.message());
 
-            else
-                logger.log() << "Skipping non-XHTML file " << entry.path();
+            std::error_code typeEc;
+            
+            const auto &filePath = entry.path();
+            const auto status = entry.symlink_status(typeEc);
+
+            if(typeEc)
+            {
+                m_logger.err() << "Could not determine the type of file: " << filePath << ": " << typeEc.message() << '\n';
+                continue;
+            }
+
+            if(std::filesystem::is_directory(status))
+            {
+                loadXMLDir(filePath, tfIndex);
+                continue;
+            }
+
+            m_logger.log() << "Indexing " << filePath << "...\n";
+
+            std::string content;
+
+            try
+            {
+                content = loadXML(filePath);
+            }
+
+            catch(const std::exception &e)
+            {
+                m_logger.err() << e.what() << '\n';
+                continue;
+            }
+
+            TermFreq tf;
+            Lexer lexer(content);
+
+            while(auto token = lexer.nextToken())
+                tf[token.value()]++;
+
+            tfIndex[filePath] = std::move(tf);
         }
 
-        return files;
+        if(ec)
+            throw std::runtime_error("Could not iterate directory: " + dirPath.string() + ": " + ec.message());
+    }
+
+    void FileSystem::loadIndex(const std::filesystem::path &path, TermFreqIndex &tfIndex) const
+    {
+        auto indexPath = resolveDir(path);
+
+        m_logger.log() << "Reading " << indexPath << "...\n";
+
+        std::ifstream indexFile(indexPath);
+        nlohmann::json j;
+
+        if(!indexFile.is_open())
+            throw std::runtime_error("Could not open index file: " + indexPath.string() + ": " + std::strerror(errno));
+
+        indexFile >> j;
+
+        for(const auto &[path, tf] : j.items())
+            tfIndex.try_emplace(std::filesystem::path(path), tf.get<TermFreq>());
+    }
+
+    void FileSystem::checkIndex(const std::filesystem::path &path) const
+    {
+        auto indexPath = resolveDir(path);
+        TermFreqIndex tfIndex;
+
+        loadIndex(indexPath, tfIndex);
+        m_logger.display() << indexPath << " contains " << tfIndex.size() << " files.\n";
+    }
+
+    void FileSystem::saveIndex(const TermFreqIndex &tfIndex, const std::filesystem::path &indexPath) const
+    {
+        nlohmann::json j;
+        std::ofstream out(indexPath);
+
+        if(!out.is_open())
+            throw std::runtime_error("Could not create index file " + indexPath.string() + ": " + std::strerror(errno));
+
+        m_logger.log() << "Saving " << indexPath << "...";
+
+        for(const auto &[path, tf] : tfIndex)
+            j[path.string()] = tf;
+
+        out << j.dump(2);
     }
 }

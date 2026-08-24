@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 
+find_package(ICU REQUIRED COMPONENTS uc)
+
 add_executable(${PROJECT_NAME} ${SOURCES})
 add_subdirectory(external/pugixml)
 
@@ -13,7 +15,6 @@ target_include_directories(${PROJECT_NAME}
     PRIVATE
         include
         external/pugixml/src
-        external/utfcpp-4.1.1
         external/json-3.12.0/include
         external/cpp-httplib
 )
@@ -21,6 +22,7 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         pugixml
+        ICU::uc
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE 

@@ -4,3 +4,4 @@
 #include "App.hpp"
 #include "FileSystem.hpp"
 #include "Lexer.hpp"
+#include "TfIdf.hpp"

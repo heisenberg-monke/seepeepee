@@ -19,10 +19,12 @@ namespace seepp
         return result;
     }
 
-    void App::serveRequest(const httplib::Request &req, httplib::Response &res) const
+    void App::serveRequest(const TermFreqIndex &tfIndex, const httplib::Request &req, httplib::Response &res) const
     {
         auto htmlPath = m_fs.resolveDir("index.html").string();
         auto jsPath = m_fs.resolveDir("index.js").string();
+
+        TfIdf tfIdf;
 
         auto serveStaticFile = [&](const std::string &filePath, const std::string &contentType)
         {
@@ -54,7 +56,27 @@ namespace seepp
 
         if(req.method == "POST" && req.target == "/api/search")
         {
-            m_logger.display() << "Search: " << req.body << '\n';
+            std::vector<std::pair<std::filesystem::path, double>> result;
+
+            for(const auto &[path, tf] : tfIndex)
+            {
+                Lexer lexer(req.body);
+                double totalTf = 0.0;
+
+                while(auto token = lexer.nextToken())
+                    totalTf += tfIdf.termFreq(token.value(), tf);
+
+                result.emplace_back(path, totalTf);
+            }
+
+            std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) 
+            {
+                return a.second > b.second;
+            });
+
+            for(const auto &[path, rank] : result)
+                m_logger.log() << path << " => " << rank << '\n';
+            
             res.set_content("ok", "text/plain");
         }
 
@@ -81,79 +103,42 @@ namespace seepp
     {
         m_logger.display("Usage: {program} [SUBCOMMAND] [OPTIONS]");
         m_logger.display("Available commands: ");
-        m_logger.display("--help | -h                                     : Show this help box.");
-        m_logger.display("--index <folder> [name] | -i <folder> [name]    : Index a folder and save it as a json.");
-        m_logger.display("--search <query> | -S <query>                   : search for a query (not implemented yet).");
-        m_logger.display("--serve | -s [address]                          : start local HTTP server with web interface");
+        m_logger.display("--help | -H                                                   : Show this help box.");
+        m_logger.display("--index <folder> [name] | -I <folder> [name]                  : Index a folder and save it as a json.");
+        m_logger.display("--search <query> | -S <query>                                 : search for a query (not implemented yet).");
+        m_logger.display("--serve <index-file> [address] | -s <index-file> [address]    : start local HTTP server with web interface");
     }
 
-    void App::indexFolder(const std::filesystem::path &path, const std::string &jsonName) const
+    void App::indexFolder(const std::filesystem::path &dirPath, const std::string &jsonName) const
     {
-        auto dirPath = m_fs.resolveDir(path);
-
         TermFreqIndex tfIndex;
-        nlohmann::json j;
 
-        for(const auto &[path, content] : m_fs.loadXMLDir(dirPath))
-        {
-            m_logger.log() << "Indexing " << path << "...";
+        m_fs.loadXMLDir(dirPath, tfIndex);
+        m_fs.saveIndex(tfIndex, jsonName);
+    }
 
-            seepp::Lexer lexer(content);
-            TermFreq tf;
+    void App::search(const std::filesystem::path &indexPath) const
+    {
+        m_fs.checkIndex(indexPath);
+    }
 
-            while(auto token = lexer.nextToken())
-                tf[toUpper(token.value())]++;
-            
-            std::vector<std::pair<std::string, size_t>> stats(tf.begin(), tf.end());
-
-            std::sort(stats.begin(), stats.end(), [](const auto &a, const auto &b) {
-                return a.second > b.second;
-            });
-
-            tfIndex.try_emplace(path, tf);
-        }
+    void App::serve(const std::filesystem::path &indexPath, const std::string &address) const
+    {
+        TermFreqIndex tfIndex;
         
-        std::string indexName = "index";
+        m_fs.loadIndex(indexPath, tfIndex);
 
-        if(!jsonName.empty())
-        {
-            indexName = indexName + "_" + jsonName;
-
-            if(!indexName.ends_with(".json"))
-                indexName += ".json";
-        }
-            
-        auto indexPath = m_fs.resolveDir(indexName);
-
-        m_logger.log() << "Saving " << indexPath << "...";
-
-        for(const auto &[path, tf] : tfIndex)
-            j[path.string()] = tf;
-
-        std::ofstream out(indexPath);
-
-        out << j.dump(2);
-    }
-
-    void App::search(const std::string &query) const
-    {
-        m_logger.display("Searching is not implemented yet");
-    }
-
-    void App::createServer(const std::string &address) const
-    {
         httplib::Server server;
         const int port = 8080;
         
-
         server.Get(R"(.*)", [&](const httplib::Request &req, httplib::Response &res)
         {
-            serveRequest(req, res);
+            serveRequest(tfIndex, req, res);
         });
 
         server.Post(R"(.*)", [&](const httplib::Request &req, httplib::Response &res)
         {
-            serveRequest(req, res);
+            serveRequest(tfIndex, req, res);
         });
 
         m_logger.log() << "Listening at http://" << address << ":" << port << '\n';

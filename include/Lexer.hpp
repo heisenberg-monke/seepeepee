@@ -3,7 +3,12 @@
 #include <optional>
 
 #include <vector>
+#include <string>
+
 #include <string_view>
+
+#include <unicode/uchar.h>
+#include <unicode/unistr.h>
 
 namespace seepp
 {
@@ -13,8 +18,6 @@ namespace seepp
     {
         Token m_curr;
 
-        void trimLeft();
-
         Token chop(size_t n);
 
         template <typename Predicate>
@@ -22,12 +25,7 @@ namespace seepp
 
     public: 
         explicit Lexer(const Token &content);
-
-        const Token &getCurr() const
-        {
-            return m_curr;
-        }
         
-        std::optional<Token> nextToken();
+        std::optional<std::string> nextToken();
     };
 }

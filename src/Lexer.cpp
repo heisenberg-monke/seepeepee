@@ -2,52 +2,20 @@
 
 #include <cctype>
 
-#include "utfcpp/utf8.h"
+#include <unicode/utf8.h>
+#include <unicode/unistr.h>
+#include <unicode/uchar.h>
 
 namespace seepp
 {
-    char32_t peek(const Token &token, size_t &bytes)
+    static inline std::pair<UChar32, size_t> decodeUTF8(const Token &token)
     {
-        auto it = token.begin();
-        char32_t c = utf8::next(it, token.end());
+        UChar32 c;
+        UChar32 i = 0;
 
-        bytes = it - token.begin();
-        return c;
-    }
+        U8_NEXT(reinterpret_cast<const uint8_t *>(token.data()), i, static_cast<UChar32>(token.size()), c);
 
-    bool isSpace(char32_t c)
-    {
-        return c == U' ' ||
-               c == U'\t' ||
-               c == U'\n' ||
-               c == U'\r' ||
-               c == U'\f' ||
-               c == U'\v';
-    }
-
-    bool isDigit(char32_t c)
-    {
-        return c >= U'0' && c <= U'9';
-    }
-
-    bool isAlpha(char32_t c)
-    {
-        return (c >= U'a' && c <= U'z') ||
-               (c >= U'A' && c <= U'Z');
-    }
-
-    void Lexer::trimLeft()
-    {
-        while(!m_curr.empty())
-        {
-            auto it = m_curr.begin();
-            char32_t c = utf8::next(it, m_curr.end());
-
-            if(!isSpace(c))
-                break;
-
-            m_curr.remove_prefix(it - m_curr.begin());
-        }
+        return {c, static_cast<size_t>(i)};
     }
 
     Token Lexer::chop(size_t n)
@@ -64,13 +32,12 @@ namespace seepp
         
         while(n < m_curr.size())
         {
-            size_t bytes;
-            char32_t c = peek(m_curr.substr(n), bytes);
+            auto [c, width] = decodeUTF8(m_curr.substr(n));
 
             if(!predicate(c))
                 break;
 
-            n += bytes;
+            n += width;
         }
 
         return chop(n);
@@ -79,22 +46,34 @@ namespace seepp
     Lexer::Lexer(const Token &content)
         : m_curr(content) {}
 
-    std::optional<Token> Lexer::nextToken()
+    std::optional<std::string> Lexer::nextToken()
     {
-        chopWhile(isSpace);
+        chopWhile(u_isUWhiteSpace);
 
         if(m_curr.empty())
             return std::nullopt;
 
-        size_t bytes;
-        char32_t c = peek(m_curr, bytes);
+        auto [c, width] = decodeUTF8(m_curr);
 
-        if(isDigit(c))
-            return chopWhile(isDigit);
+        if(u_getIntPropertyValue(c, UCHAR_NUMERIC_TYPE) != U_NT_NONE)
+            return std::string(chopWhile([](UChar32 c)
+            {
+                return u_getIntPropertyValue(c, UCHAR_NUMERIC_TYPE) != U_NT_NONE;
+            }));
 
-        if(isAlpha(c))
-            return chopWhile(isAlpha);
+        if(u_isalpha(c))
+        {
+            auto token = chopWhile(u_isalnum);
+            auto unicode = icu::UnicodeString::fromUTF8(token);
 
-        return chop(bytes);
+            std::string result;
+
+            unicode.toUpper();
+            unicode.toUTF8String(result);
+
+            return result;
+        }
+
+        return std::string(chop(width));
     }
 }
