@@ -61,12 +61,12 @@ namespace seepp
             for(const auto &[path, tf] : tfIndex)
             {
                 Lexer lexer(req.body);
-                double totalTf = 0.0;
+                double rank = 0.0;
 
                 while(auto token = lexer.nextToken())
-                    totalTf += tfIdf.termFreq(token.value(), tf);
+                    rank += (tfIdf.termFreq(token.value(), tf) * tfIdf.inverseDocumentFrequency(token.value(), tfIndex));
 
-                result.emplace_back(path, totalTf);
+                result.emplace_back(path, rank);
             }
 
             std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) 
@@ -74,8 +74,8 @@ namespace seepp
                 return a.second > b.second;
             });
 
-            for(const auto &[path, rank] : result)
-                m_logger.log() << path << " => " << rank << '\n';
+            for(size_t i = 0; i < std::min<size_t>(10, result.size()); ++i)
+                m_logger.log() << result[i].first << " => " << result[i].second << '\n';
             
             res.set_content("ok", "text/plain");
         }

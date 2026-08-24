@@ -14,5 +14,6 @@ namespace seepp
     {
     public:
         double termFreq(const std::string &term, const TermFreq &tf) const;
+        double inverseDocumentFrequency(const std::string &term, const TermFreqIndex &tfIndex) const;
     };
 }
