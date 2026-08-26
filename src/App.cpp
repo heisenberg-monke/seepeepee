@@ -31,8 +31,8 @@ namespace seepp
     {
         Model model;
 
-        m_fs.loadXMLDir(dirPath, model.m_tfpd);
-        m_fs.saveModel(tfIndex, jsonName);
+        m_fs.loadXMLDir(dirPath, model);
+        m_fs.saveModel(model, jsonName);
     }
 
     void App::search(const std::filesystem::path &modelPath, const std::string &query) const

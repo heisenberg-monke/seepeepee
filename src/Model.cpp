@@ -22,12 +22,8 @@ namespace seepp
 
     double Model::invDocFreq(const std::string &term) const
     {
-        size_t count = 0;
-
-        for(const auto &[_, tf] : m_tfpd)
-            count += tf.count(term);
-
-        return std::log(static_cast<double>(m_tfpd.size()) / static_cast<double>(std::max<size_t>(count, 1)));
+        auto it = m_df.find(term);
+        return std::log10(static_cast<double>(m_tfpd.size()) / static_cast<double>(it != m_df.end() ? it->second : 1));
     }
 
     std::vector<std::pair<const std::filesystem::path*, double>> Model::search(const std::string &query) const

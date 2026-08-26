@@ -58,7 +58,7 @@ namespace seepp
         return content;
     }
 
-    void FileSystem::loadXMLDir(const std::filesystem::path &path, TermFreqPerDoc &tfIndex) const
+    void FileSystem::loadXMLDir(const std::filesystem::path &path, Model &model) const
     {
         auto dirPath = resolveDir(path);
         std::error_code ec;
@@ -81,7 +81,7 @@ namespace seepp
 
             if(std::filesystem::is_directory(status))
             {
-                loadXMLDir(filePath, tfIndex);
+                loadXMLDir(filePath, model);
                 continue;
             }
 
@@ -106,7 +106,10 @@ namespace seepp
             while(auto token = lexer.nextToken())
                 tf[token.value()]++;
 
-            tfIndex[filePath] = std::move(tf);
+            for(const auto &[term, _] : tf)
+                model.m_df[term]++;
+
+            model.m_tfpd[filePath] = std::move(tf);
         }
 
         if(ec)
