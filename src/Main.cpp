@@ -30,12 +30,13 @@ int main(int argc, char **argv)
         
         std::filesystem::path indexPath;
         std::string jsonName;
+        std::string query;
         std::string address;
 
         auto setCommand = [&](Subcommand command)
         {
             if(subcommand != Subcommand::NONE)
-                throw std::runtime_error("Only one subcommand can be specified.\n");
+                throw std::runtime_error("Only one subcommand can be specified.");
 
             subcommand = command;
         };
@@ -55,7 +56,7 @@ int main(int argc, char **argv)
                 setCommand(Subcommand::INDEX);
 
                 if(i + 1 >= argc || argv[i+1][0] == '-')
-                    throw std::runtime_error("No folder given for indexing.\n");
+                    throw std::runtime_error("No folder given for indexing.");
 
                 indexPath = argv[++i];
 
@@ -68,9 +69,14 @@ int main(int argc, char **argv)
                 setCommand(Subcommand::SEARCH);
 
                 if(i + 1 >= argc || argv[i+1][0] == '-')
-                    throw std::runtime_error("No query given to search.\n");
+                    throw std::runtime_error("No index file given for searching.");
 
                 indexPath = argv[++i];
+
+                if(i + 1 >= argc || argv[i+1][0] == '-')
+                    throw std::runtime_error("No query given to search.");
+
+                query = argv[++i];
             }
 
             else if(arg == "--serve" || arg == "-s")
@@ -78,7 +84,7 @@ int main(int argc, char **argv)
                 setCommand(Subcommand::SERVE);
 
                 if(i + 1 >= argc || argv[i+1][0] == '-')
-                    throw std::runtime_error("No file given for indexing.\n");
+                    throw std::runtime_error("No file given for indexing.");
 
                 indexPath = argv[++i];
                 address = (i+1 < argc && argv[i+1][0] != '-') ? argv[++i] : "127.0.0.1";
@@ -89,7 +95,7 @@ int main(int argc, char **argv)
         }
 
         if(subcommand == Subcommand::NONE)
-            throw std::runtime_error("No subcommand is given.\n");
+            throw std::runtime_error("No subcommand is given.");
 
         auto &logger = seepp::Logger::getLogger();
 
@@ -110,7 +116,7 @@ int main(int argc, char **argv)
                     break;
 
                 case Subcommand::SEARCH:
-                    app.search(indexPath);
+                    app.search(indexPath, query);
                     break;
 
                 case Subcommand::SERVE:

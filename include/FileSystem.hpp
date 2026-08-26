@@ -6,7 +6,7 @@
 #include <filesystem>
 
 #include "Logger.hpp"
-#include "TfIdf.hpp"
+#include "Model.hpp"
 
 namespace seepp
 {

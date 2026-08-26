@@ -1,10 +1,5 @@
 #include "App.hpp"
-
-#include <algorithm>
-
-#include <fstream>
-
-#include <nlohmann/json.hpp>
+#include "Server.hpp"
 
 namespace seepp
 {
@@ -19,83 +14,6 @@ namespace seepp
         return result;
     }
 
-    void App::serveRequest(const TermFreqIndex &tfIndex, const httplib::Request &req, httplib::Response &res) const
-    {
-        auto htmlPath = m_fs.resolveDir("index.html").string();
-        auto jsPath = m_fs.resolveDir("index.js").string();
-
-        TfIdf tfIdf;
-
-        auto serveStaticFile = [&](const std::string &filePath, const std::string &contentType)
-        {
-            std::ifstream file(filePath);
-
-            if(!file)
-            {
-                m_logger.err() << "Could not serve file " << filePath << '\n';
-
-                res.status = 500;
-                res.set_content("500", "text/plain");
-
-                return;
-            }
-
-            std::stringstream buffer;
-
-            buffer << file.rdbuf();
-            res.set_content(buffer.str(), contentType);
-        };
-
-        auto serve404 = [&]()
-        {
-            res.status = 404;
-            res.set_content("404", "text/plain");
-        };
-
-        m_logger.log() << "Received request! Method: " << req.method << ", URL: " << req.target << '\n';
-
-        if(req.method == "POST" && req.target == "/api/search")
-        {
-            std::vector<std::pair<std::filesystem::path, double>> result;
-
-            for(const auto &[path, tf] : tfIndex)
-            {
-                Lexer lexer(req.body);
-                double rank = 0.0;
-
-                while(auto token = lexer.nextToken())
-                    rank += (tfIdf.termFreq(token.value(), tf) * tfIdf.inverseDocumentFrequency(token.value(), tfIndex));
-
-                result.emplace_back(path, rank);
-            }
-
-            std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) 
-            {
-                return a.second > b.second;
-            });
-
-            for(size_t i = 0; i < std::min<size_t>(10, result.size()); ++i)
-                m_logger.log() << result[i].first << " => " << result[i].second << '\n';
-            
-            res.set_content("ok", "text/plain");
-        }
-
-        else if(req.method == "GET")
-        {
-            if(req.target == "/" || req.target == "/index.html")
-                serveStaticFile(htmlPath, "text/html; charset=utf-8");
-
-            else if(req.target == "/index.js")
-                serveStaticFile(jsPath, "text/javascript; charset=utf-8");
-
-            else
-                serve404();
-        }
-        
-        else
-            serve404();
-    }
-
     App::App()
         : m_logger(Logger::getLogger()) {}
 
@@ -105,7 +23,7 @@ namespace seepp
         m_logger.display("Available commands: ");
         m_logger.display("--help | -H                                                   : Show this help box.");
         m_logger.display("--index <folder> [name] | -I <folder> [name]                  : Index a folder and save it as a json.");
-        m_logger.display("--search <query> | -S <query>                                 : search for a query (not implemented yet).");
+        m_logger.display("--search <index-file> <query> | -S <index-file> <query>       : search for a query within the index file.");
         m_logger.display("--serve <index-file> [address] | -s <index-file> [address]    : start local HTTP server with web interface");
     }
 
@@ -117,33 +35,25 @@ namespace seepp
         m_fs.saveIndex(tfIndex, jsonName);
     }
 
-    void App::search(const std::filesystem::path &indexPath) const
+    void App::search(const std::filesystem::path &indexPath, const std::string &query) const
     {
-        m_fs.checkIndex(indexPath);
+        TermFreqIndex tfIndex;
+        Model model;
+        
+        m_fs.loadIndex(indexPath, tfIndex);
+
+        auto result = model.search(tfIndex, query);
+
+        for(size_t i = 0; i < std::min<size_t>(20, result.size()); ++i)
+            m_logger.display() << *result[i].first << " => " << result[i].second << '\n';
     }
 
     void App::serve(const std::filesystem::path &indexPath, const std::string &address) const
     {
+        Server server(m_fs);
         TermFreqIndex tfIndex;
-        
+
         m_fs.loadIndex(indexPath, tfIndex);
-
-        httplib::Server server;
-        const int port = 8080;
-        
-        server.Get(R"(.*)", [&](const httplib::Request &req, httplib::Response &res)
-        {
-            serveRequest(tfIndex, req, res);
-        });
-
-        server.Post(R"(.*)", [&](const httplib::Request &req, httplib::Response &res)
-        {
-            serveRequest(tfIndex, req, res);
-        });
-
-        m_logger.log() << "Listening at http://" << address << ":" << port << '\n';
-
-        if(!server.listen(address, port))
-            throw std::runtime_error("Could not start HTTP server");
+        server.init(address, tfIndex);
     }
 }
