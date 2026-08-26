@@ -7,17 +7,12 @@
 
 namespace seepp
 {
-    double Model::termFreq(const std::string &term, const TermFreq &tf) const
+    double Model::termFreq(const std::string &term, size_t n, const TermFreq &tf) const
     {
-        size_t sum = 0;
-
-        for(const auto &[t, f] : tf)
-            sum += f;
-
         auto it = tf.find(term);
         double freq = it == tf.end() ? 0.0 : static_cast<double>(it->second);
 
-        return sum == 0 ? 0.0 : freq / static_cast<double>(sum);
+        return n == 0 ? 0.0 : freq / static_cast<double>(n);
     }
 
     double Model::invDocFreq(const std::string &term) const
@@ -41,10 +36,9 @@ namespace seepp
         for(const auto &[path, tf] : m_tfpd)
         {
             double rank = 0.0;
-            Lexer lexer(query);
 
             for(const auto &token : tokens)
-                rank += termFreq(token, tf) * invDocFreq(token);
+                rank += termFreq(token, tf.first, tf.second) * invDocFreq(token);
 
             result.emplace_back(&path, rank);
         }

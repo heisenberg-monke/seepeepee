@@ -103,13 +103,18 @@ namespace seepp
             TermFreq tf;
             Lexer lexer(content);
 
-            while(auto token = lexer.nextToken())
-                tf[token.value()]++;
+            size_t count = 0;
 
+            while(auto token = lexer.nextToken())
+            {
+                tf[token.value()]++;
+                ++count;
+            }
+            
             for(const auto &[term, _] : tf)
                 model.m_df[term]++;
 
-            model.m_tfpd[filePath] = std::move(tf);
+            model.m_tfpd.try_emplace(filePath, count, tf);
         }
 
         if(ec)
@@ -134,8 +139,8 @@ namespace seepp
 
         model.m_tfpd.clear();
 
-        for(const auto &[path, tf] : j.at("tfpd").items())
-            model.m_tfpd.try_emplace(std::filesystem::path(path), tf.get<TermFreq>());
+        for(const auto &[path, doc] : j.at("tfpd").items())
+            model.m_tfpd.try_emplace(std::filesystem::path(path), doc.at("size").get<size_t>(), doc.at("tf").get<TermFreq>());
     }
 
     // void FileSystem::checkIndex(const std::filesystem::path &path) const
@@ -159,8 +164,14 @@ namespace seepp
 
         j["df"] = model.m_df;
 
-        for(const auto &[path, tf] : model.m_tfpd)
-            j["tfpd"][path.string()] = tf;
+        for(const auto &[path, doc] : model.m_tfpd)
+        {
+            j["tfpd"][path.string()] =
+            {
+                {"size", doc.first},
+                {"tf", doc.second}  
+            };
+        }
 
         out << j.dump(2);
     }
