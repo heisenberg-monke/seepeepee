@@ -8,14 +8,21 @@
 
 namespace seepp
 {
+    using DocFreq = std::unordered_map<std::string, size_t>;
     using TermFreq = std::unordered_map<std::string, size_t>;
-    using TermFreqIndex = std::unordered_map<std::filesystem::path, TermFreq>;
+    using TermFreqPerDoc = std::unordered_map<std::filesystem::path, TermFreq>;
 
     class Model
     {
+        DocFreq m_df;
+        TermFreqPerDoc m_tfpd;
+
+        friend class App;
+        friend class FileSystem;
+
     public:
         double termFreq(const std::string &term, const TermFreq &tf) const;
-        double invDocFreq(const std::string &term, const TermFreqIndex &tfIndex) const;
-        std::vector<std::pair<const std::filesystem::path*, double>> search(TermFreqIndex &tfIndex, const std::string &query) const;
+        double invDocFreq(const std::string &term) const;
+        std::vector<std::pair<const std::filesystem::path*, double>> search(const std::string &query) const;
     };
 }

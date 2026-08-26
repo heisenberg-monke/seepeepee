@@ -29,31 +29,30 @@ namespace seepp
 
     void App::indexFolder(const std::filesystem::path &dirPath, const std::string &jsonName) const
     {
-        TermFreqIndex tfIndex;
+        Model model;
 
-        m_fs.loadXMLDir(dirPath, tfIndex);
-        m_fs.saveIndex(tfIndex, jsonName);
+        m_fs.loadXMLDir(dirPath, model.m_tfpd);
+        m_fs.saveModel(tfIndex, jsonName);
     }
 
-    void App::search(const std::filesystem::path &indexPath, const std::string &query) const
+    void App::search(const std::filesystem::path &modelPath, const std::string &query) const
     {
-        TermFreqIndex tfIndex;
         Model model;
         
-        m_fs.loadIndex(indexPath, tfIndex);
+        m_fs.loadModel(modelPath, model);
 
-        auto result = model.search(tfIndex, query);
+        auto result = model.search(query);
 
         for(size_t i = 0; i < std::min<size_t>(20, result.size()); ++i)
             m_logger.display() << *result[i].first << " => " << result[i].second << '\n';
     }
 
-    void App::serve(const std::filesystem::path &indexPath, const std::string &address) const
+    void App::serve(const std::filesystem::path &modelPath, const std::string &address) const
     {
         Server server(m_fs);
-        TermFreqIndex tfIndex;
+        Model model;
 
-        m_fs.loadIndex(indexPath, tfIndex);
-        server.init(address, tfIndex);
+        m_fs.loadModel(modelPath, model);
+        server.init(address, model);
     }
 }

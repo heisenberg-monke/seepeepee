@@ -20,21 +20,21 @@ namespace seepp
         return sum == 0 ? 0.0 : freq / static_cast<double>(sum);
     }
 
-    double Model::invDocFreq(const std::string &term, const TermFreqIndex &tfIndex) const
+    double Model::invDocFreq(const std::string &term) const
     {
         size_t count = 0;
 
-        for(const auto &[_, tf] : tfIndex)
+        for(const auto &[_, tf] : m_tfpd)
             count += tf.count(term);
 
-        return std::log(static_cast<double>(tfIndex.size()) / static_cast<double>(std::max<size_t>(count, 1)));
+        return std::log(static_cast<double>(m_tfpd.size()) / static_cast<double>(std::max<size_t>(count, 1)));
     }
 
-    std::vector<std::pair<const std::filesystem::path*, double>> Model::search(TermFreqIndex &tfIndex, const std::string &query) const
+    std::vector<std::pair<const std::filesystem::path*, double>> Model::search(const std::string &query) const
     {
         std::vector<std::pair<const std::filesystem::path*, double>> result;
         
-        result.reserve(tfIndex.size());
+        result.reserve(m_tfpd.size());
 
         Lexer lexer(query);
         std::vector<std::string> tokens;
@@ -42,13 +42,13 @@ namespace seepp
         while(auto token = lexer.nextToken())
             tokens.emplace_back(token.value());
 
-        for(const auto &[path, tf] : tfIndex)
+        for(const auto &[path, tf] : m_tfpd)
         {
             double rank = 0.0;
             Lexer lexer(query);
 
             for(const auto &token : tokens)
-                rank += termFreq(token, tf) * invDocFreq(token, tfIndex);
+                rank += termFreq(token, tf) * invDocFreq(token);
 
             result.emplace_back(&path, rank);
         }

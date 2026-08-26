@@ -4,7 +4,10 @@
 
 #include <unicode/utf8.h>
 #include <unicode/unistr.h>
+#include <unicode/ustring.h>
 #include <unicode/uchar.h>
+
+#include <stdexcept>
 
 namespace seepp
 {
@@ -43,8 +46,31 @@ namespace seepp
         return chop(n);
     }
 
+    bool isValid(const Token &content)
+    {
+        UErrorCode status = U_ZERO_ERROR;
+        int32_t length = 0;
+        
+        u_strFromUTF8(nullptr, 0, &length, content.data(), static_cast<int32_t>(content.size()), &status);
+
+        if(status != U_BUFFER_OVERFLOW_ERROR && U_FAILURE(status))
+            return false;
+
+        status = U_ZERO_ERROR;
+
+        std::vector<UChar> buffer(length);
+
+        u_strFromUTF8(buffer.data(), length, nullptr, content.data(), static_cast<int32_t>(content.size()), &status);
+
+        return U_SUCCESS(status);
+    }
+
     Lexer::Lexer(const Token &content)
-        : m_curr(content) {}
+        : m_curr(content)
+    {
+        if(!isValid(content))
+            throw std::runtime_error("Invalid UTF8");
+    }
 
     std::optional<std::string> Lexer::nextToken()
     {

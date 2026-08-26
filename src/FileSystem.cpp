@@ -58,7 +58,7 @@ namespace seepp
         return content;
     }
 
-    void FileSystem::loadXMLDir(const std::filesystem::path &path, TermFreqIndex &tfIndex) const
+    void FileSystem::loadXMLDir(const std::filesystem::path &path, TermFreqPerDoc &tfIndex) const
     {
         auto dirPath = resolveDir(path);
         std::error_code ec;
@@ -113,45 +113,51 @@ namespace seepp
             throw std::runtime_error("Could not iterate directory: " + dirPath.string() + ": " + ec.message());
     }
 
-    void FileSystem::loadIndex(const std::filesystem::path &path, TermFreqIndex &tfIndex) const
+    void FileSystem::loadModel(const std::filesystem::path &path, Model &model) const
     {
-        auto indexPath = resolveDir(path);
+        auto modelPath = resolveDir(path);
 
-        m_logger.log() << "Reading " << indexPath << "...\n";
+        m_logger.log() << "Reading " << modelPath << "...\n";
 
-        std::ifstream indexFile(indexPath);
+        std::ifstream modelFile(modelPath);
         nlohmann::json j;
 
-        if(!indexFile.is_open())
-            throw std::runtime_error("Could not open index file: " + indexPath.string() + ": " + std::strerror(errno));
+        if(!modelFile)
+            throw std::runtime_error("Could not open index file: " + modelPath.string() + ": " + std::strerror(errno));
 
-        indexFile >> j;
+        modelFile >> j;
 
-        for(const auto &[path, tf] : j.items())
-            tfIndex.try_emplace(std::filesystem::path(path), tf.get<TermFreq>());
+        model.m_df = j.at("df").get<DocFreq>();
+
+        model.m_tfpd.clear();
+
+        for(const auto &[path, tf] : j.at("tfpd").items())
+            model.m_tfpd.try_emplace(std::filesystem::path(path), tf.get<TermFreq>());
     }
 
-    void FileSystem::checkIndex(const std::filesystem::path &path) const
-    {
-        auto indexPath = resolveDir(path);
-        TermFreqIndex tfIndex;
+    // void FileSystem::checkIndex(const std::filesystem::path &path) const
+    // {
+    //     auto indexPath = resolveDir(path);
+    //     TermFreqPerDoc tfIndex;
 
-        loadIndex(indexPath, tfIndex);
-        m_logger.display() << indexPath << " contains " << tfIndex.size() << " files.\n";
-    }
+    //     loadIndex(indexPath, tfIndex);
+    //     m_logger.display() << indexPath << " contains " << tfIndex.size() << " files.\n";
+    // }
 
-    void FileSystem::saveIndex(const TermFreqIndex &tfIndex, const std::filesystem::path &indexPath) const
+    void FileSystem::saveModel(const Model &model, const std::filesystem::path &modelPath) const
     {
         nlohmann::json j;
-        std::ofstream out(indexPath);
+        std::ofstream out(modelPath);
 
-        if(!out.is_open())
-            throw std::runtime_error("Could not create index file " + indexPath.string() + ": " + std::strerror(errno));
+        if(!out)
+            throw std::runtime_error("Could not create index file " + modelPath.string() + ": " + std::strerror(errno));
 
-        m_logger.log() << "Saving " << indexPath << "...";
+        m_logger.log() << "Saving " << modelPath << "...";
 
-        for(const auto &[path, tf] : tfIndex)
-            j[path.string()] = tf;
+        j["df"] = model.m_df;
+
+        for(const auto &[path, tf] : model.m_tfpd)
+            j["tfpd"][path.string()] = tf;
 
         out << j.dump(2);
     }
