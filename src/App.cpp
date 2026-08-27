@@ -29,15 +29,15 @@ namespace seepp
 
     void App::indexFolder(const std::filesystem::path &dirPath, const std::string &jsonName) const
     {
-        Model model;
+        InMemoryModel model;
 
-        m_fs.loadXMLDir(dirPath, model);
+        m_fs.loadXMLDir(dirPath, &model);
         m_fs.saveModel(model, jsonName);
     }
 
     void App::search(const std::filesystem::path &modelPath, const std::string &query) const
     {
-        Model model;
+        InMemoryModel model;
         
         m_fs.loadModel(modelPath, model);
 
@@ -50,7 +50,7 @@ namespace seepp
     void App::serve(const std::filesystem::path &modelPath, const std::string &address) const
     {
         Server server(m_fs);
-        Model model;
+        InMemoryModel model;
 
         m_fs.loadModel(modelPath, model);
         server.init(address, model);

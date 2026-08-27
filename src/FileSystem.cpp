@@ -58,7 +58,7 @@ namespace seepp
         return content;
     }
 
-    void FileSystem::loadXMLDir(const std::filesystem::path &path, Model &model) const
+    void FileSystem::loadXMLDir(const std::filesystem::path &path, Model *model) const
     {
         auto dirPath = resolveDir(path);
         std::error_code ec;
@@ -100,28 +100,14 @@ namespace seepp
                 continue;
             }
 
-            TermFreq tf;
-            Lexer lexer(content);
-
-            size_t count = 0;
-
-            while(auto token = lexer.nextToken())
-            {
-                tf[token.value()]++;
-                ++count;
-            }
-            
-            for(const auto &[term, _] : tf)
-                model.m_df[term]++;
-
-            model.m_tfpd.try_emplace(filePath, count, tf);
+            model->addDocument(filePath, content);
         }
 
         if(ec)
             throw std::runtime_error("Could not iterate directory: " + dirPath.string() + ": " + ec.message());
     }
 
-    void FileSystem::loadModel(const std::filesystem::path &path, Model &model) const
+    void FileSystem::loadModel(const std::filesystem::path &path, InMemoryModel &model) const
     {
         auto modelPath = resolveDir(path);
 
@@ -143,6 +129,58 @@ namespace seepp
             model.m_tfpd.try_emplace(std::filesystem::path(path), doc.at("size").get<size_t>(), doc.at("tf").get<TermFreq>());
     }
 
+    void FileSystem::loadModel(const std::filesystem::path &path, SQLiteModel &model) const
+    {
+        auto modelPath = resolveDir(path);
+        sqlite3 *raw = nullptr;
+
+        if(sqlite3_open(modelPath.c_str(), &raw) != SQLITE_OK)
+        {
+            std::string error = sqlite3_errmsg(raw);
+
+            sqlite3_close(raw);
+            throw std::runtime_error("Could not open SQLite database: " + modelPath.string() + ": " + error + '\n');
+        }
+
+        model.m_connection.reset(raw);
+
+        if(!model.execute(R"sql(
+            CREATE TABLE IF NOT EXISTS Documents
+            (
+                id INTEGER NOT NULL PRIMARY KEY,
+                path TEXT,
+                term_count INTEGER,
+                
+                UNIQUE(path)
+            );
+        )sql"))
+            throw std::runtime_error("Failed to create table: Documents");
+
+        if(!model.execute(R"sql(
+            CREATE TABLE IF NOT EXISTS TermFreq
+            (
+                term TEXT,
+                doc_id INTEGER,
+                freq INTEGER,
+                
+                UNIQUE(term, doc_id),
+                FOREIGN_KEY(doc_id) REFERENCES Documents(id)
+            );
+        )sql"))
+            throw std::runtime_error("Failed to create table: TermFreq");
+
+        if(!model.execute(R"sql(
+            CREATE TABLE IF NOT EXISTS DocFreq
+            (
+                term TEXT,
+                freq INTEGER,
+                
+                UNIQUE(term)
+            );
+        )sql"))
+            throw std::runtime_error("Failed to create table: DocFreq");
+    }
+
     // void FileSystem::checkIndex(const std::filesystem::path &path) const
     // {
     //     auto indexPath = resolveDir(path);
@@ -152,7 +190,7 @@ namespace seepp
     //     m_logger.display() << indexPath << " contains " << tfIndex.size() << " files.\n";
     // }
 
-    void FileSystem::saveModel(const Model &model, const std::filesystem::path &modelPath) const
+    void FileSystem::saveModel(const InMemoryModel &model, const std::filesystem::path &modelPath) const
     {
         nlohmann::json j;
         std::ofstream out(modelPath);
