@@ -32,8 +32,12 @@ async function search(prompt)
     for([path, rank] of json)
     {
         let item = document.createElement("span");
+        let link = document.createElement("a");
 
-        item.appendChild(document.createTextNode(path));
+        link.href = "/document/" + path;
+        link.textContent = path;
+
+        item.appendChild(link);
         item.appendChild(document.createElement("br"));
 
         results.appendChild(item);

@@ -6,7 +6,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace seepp
 {
@@ -111,6 +115,12 @@ namespace seepp
         return execute("COMMIT;");
     }
 
+    void SQLiteModel::check(int rc, const std::string &operation) const
+    {
+        if(rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW)
+            throw std::runtime_error(operation + ": " + sqlite3_errmsg(m_connection.get()));
+    }
+
     void SQLiteModel::addDocument(const std::filesystem::path &filePath, const std::string &content)
     {
         Lexer lexer(content);
@@ -124,12 +134,6 @@ namespace seepp
             ++count;
         }
 
-        auto checkStmt = [&](int rc, const std::string &operation)
-        {
-            if(rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW)
-                throw std::runtime_error(operation + ": " + sqlite3_errmsg(m_connection.get()));
-        };
-
         sqlite3_stmt *rawStatement = nullptr;
         const std::string path = filePath.string();
 
@@ -139,14 +143,14 @@ namespace seepp
         {
             const char *query =  "INSERT INTO Documents(path, term_count) VALUES(?, ?);";
 
-            checkStmt(sqlite3_prepare_v2( m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
+            check(sqlite3_prepare_v2( m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
 
             statement.reset(rawStatement);
 
-            checkStmt(sqlite3_bind_text(statement.get(), 1, path.c_str(), static_cast<int>(path.size()), SQLITE_TRANSIENT), "Failed to bind path");
-            checkStmt(sqlite3_bind_int64(statement.get(), 2, static_cast<sqlite3_int64>(count)), "Failed to bind term count");
+            check(sqlite3_bind_text(statement.get(), 1, path.c_str(), static_cast<int>(path.size()), SQLITE_TRANSIENT), "Failed to bind path");
+            check(sqlite3_bind_int64(statement.get(), 2, static_cast<sqlite3_int64>(count)), "Failed to bind term count");
 
-            checkStmt(sqlite3_step(statement.get()), "Failed to execute query");
+            check(sqlite3_step(statement.get()), "Failed to execute query");
 
             docID = sqlite3_last_insert_rowid(m_connection.get());
         }
@@ -158,55 +162,111 @@ namespace seepp
 
                 rawStatement = nullptr;
 
-                checkStmt(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
+                check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
                 statement.reset(rawStatement);
 
-                checkStmt(sqlite3_bind_int64(statement.get(), 1, docID), "Failed to bind docID");
-                checkStmt(sqlite3_bind_text(statement.get(), 2, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
-                checkStmt(sqlite3_bind_int64(statement.get(), 3, freq), "Failed to bind freq");
+                check(sqlite3_bind_int64(statement.get(), 1, docID), "Failed to bind docID");
+                check(sqlite3_bind_text(statement.get(), 2, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
+                check(sqlite3_bind_int64(statement.get(), 3, freq), "Failed to bind freq");
 
-                checkStmt(sqlite3_step(statement.get()), "Failed to execute query");
+                check(sqlite3_step(statement.get()), "Failed to execute query");
             }
 
             {
-                sqlite3_int64 docFreq;
-
-                {
-                    const char *query = "SELECT freq FROM DocFreq WHERE term = ?;";
-
-                    rawStatement = nullptr;
-
-                    checkStmt(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
-                    statement.reset(rawStatement);
-
-                    checkStmt(sqlite3_bind_text(statement.get(), 1, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
-
-                    checkStmt(sqlite3_step(statement.get()), "Failed to execute query");
-
-                    docFreq = sqlite3_column_int64(statement.get(), 0);
-                }
-
-                {
-                    const char *query = "INSERT OR REPLACE INTO DocFreq(term, freq) VALUES (?, ?);";
+                const char *query = 
+                R"(
+                    INSERT INTO DocFreq(term, freq) VALUES(?, 1) 
+                    ON CONFLICT(term) DO UPDATE SET freq = freq + 1; 
+                )";
 
                     rawStatement = nullptr;
 
-                    checkStmt(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
+                    check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
                     statement.reset(rawStatement);
 
-                    checkStmt(sqlite3_bind_text(statement.get(), 1, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
-                    checkStmt(sqlite3_bind_int64(statement.get(), 2, docFreq), "Failed to find docFreq");
+                    check(sqlite3_bind_text(statement.get(), 1, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
 
-                    checkStmt(sqlite3_step(statement.get()), "Failed to execute query");
-                }
+                    check(sqlite3_step(statement.get()), "Failed to execute query");
             }
         }
     }
 
     std::vector<std::pair<std::filesystem::path, double>> SQLiteModel::search(const std::string &query) const
     {
-        m_logger.log() << "This isn't implemented yet, but I'm glad we've reached this far.\n";
+        Lexer lexer(query);
+        std::vector<std::string> tokens;
+
+        while(auto token = lexer.nextToken())
+            tokens.emplace_back(*token);
+
+        std::vector<std::pair<std::filesystem::path, double>> result;
+
+        sqlite3_stmt *raw = nullptr;
+        Statement statement(raw);
+
+        sqlite3_int64 docCount = 0;
+        {
+            const char *query = "SELECT COUNT(*) FROM Documents;";
+
+            check(sqlite3_prepare_v2(m_connection.get(), query, -1, &raw, nullptr), "Failed to prepare document count query");
+            statement.reset(raw);
+
+            check(sqlite3_step(statement.get()), "Failed to execute document query");
+
+            docCount = sqlite3_column_int64(statement.get(), 0);
+        }
+
+        if(docCount == 0 || tokens.empty())
+            return result;
+
+        std::unordered_map<std::filesystem::path, double> scores;
+
+        for(const auto &token : tokens)
+        {
+            const char *query = 
+            R"(
+                SELECT d.path, tf.freq, d.term_count, df.freq FROM TermFreq AS tf
+                JOIN Documents AS d ON d.id = tf.doc_id
+                JOIN DocFreq as df ON df.term = tf.term
+                WHERE tf.term = ?;
+            )";
+
+            raw = nullptr;
+
+            check(sqlite3_prepare_v2(m_connection.get(), query, -1, &raw, nullptr), "Failed to prepare search query");
+            statement.reset(raw);
+
+            check(sqlite3_bind_text(statement.get(), 1, token.c_str(), static_cast<int>(token.size()), SQLITE_TRANSIENT), "Failed to bind search term");
+
+            while(true)
+            {
+                const int rc = sqlite3_step(statement.get());
+
+                if(rc == SQLITE_DONE)
+                    break;
+
+                if(rc != SQLITE_ROW)
+                    check(rc, "Failed to execute search query.");
+
+                const char *path = reinterpret_cast<const char *>(sqlite3_column_text(statement.get(), 0));
+                const double termCount = static_cast<double>(sqlite3_column_int64(statement.get(), 1));
+                const double docTermFreq = static_cast<double>(sqlite3_column_int64(statement.get(), 2));
+                const double docFreq = static_cast<double>(sqlite3_column_int64(statement.get(), 3));
+
+                if(path && docTermFreq > 0.0 && docFreq > 0.0)
+                    scores[path] += (termCount / docTermFreq) * (std::log10(static_cast<double>(docCount) / docFreq));
+            }
+        }
+
+        result.reserve(scores.size());
+
+        for(const auto &[path, score] : scores)
+            result.emplace_back(path, score);
+
+        std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
+            return a.second > b.second;
+        });
         
-        return {};
+        return result;
     }
 }

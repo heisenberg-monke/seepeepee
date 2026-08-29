@@ -1,5 +1,6 @@
 #include "Server.hpp"
 
+#include <filesystem>
 #include <nlohmann/json.hpp>
 
 namespace seepp
@@ -76,10 +77,13 @@ namespace seepp
         try
         {
             auto result = model->search(req.body);
+            auto root = m_fs.resolveDir("docs.gl");
+
             nlohmann::json json = nlohmann::json::array();
 
             for(size_t i = 0; i < std::min<size_t>(20, result.size()); ++i)
-                json.push_back({result[i].first.string(), result[i].second});
+                json.push_back({std::filesystem::relative(result[i].first, root).string(), result[i].second});
+                
                 
             res.set_content(json.dump(), "application/json");
         }
@@ -114,6 +118,9 @@ namespace seepp
 
             else if(req.target == "/index.js")
                 serveStaticFile(res, jsPath, "text/javascript; charset=utf-8");
+
+            else if(req.target.starts_with("/document/"))
+                serveStaticFile(res, m_fs.resolveDir("docs.gl") / req.target.substr(10), "application/xhtml+xml");
 
             else
                 serve404(res);

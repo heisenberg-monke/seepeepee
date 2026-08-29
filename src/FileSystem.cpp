@@ -1,6 +1,5 @@
 #include "FileSystem.hpp"
 #include "Logger.hpp"
-#include "Lexer.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -11,7 +10,6 @@
 #include <cerrno>
 #include <cstring>
 
-#include <istream>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -81,7 +79,7 @@ namespace seepp
     {
         auto ext = path.extension();
 
-        if(ext == ".xtml" || ext == ".xml")
+        if(ext == ".xhtml" || ext == ".xml")
             return loadXML(path);
 
         else if(ext == ".txt" || ext == ".md")

@@ -75,6 +75,8 @@ namespace seepp
         bool begin() const;
         bool commit() const;
 
+        void check(int rc, const std::string &operation) const;
+
         void addDocument(const std::filesystem::path &filePath, const std::string &content) override;
         std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const override;
     };
