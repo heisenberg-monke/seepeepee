@@ -15,7 +15,14 @@ namespace seepp
 {
     using DocFreq = std::unordered_map<std::string, size_t>;
     using TermFreq = std::unordered_map<std::string, size_t>;
-    using TermFreqPerDoc = std::unordered_map<std::filesystem::path, std::pair<size_t, TermFreq>>;
+
+    struct Doc
+    {
+        TermFreq tf;
+        size_t count;
+    };
+    
+    using Docs = std::unordered_map<std::filesystem::path, Doc>;
 
     struct SQLiteDeleter
     {
@@ -36,13 +43,13 @@ namespace seepp
         virtual ~Model() = default;
 
         virtual void addDocument(const std::filesystem::path &filePath, const std::string &content) = 0;
-        virtual std::vector<std::pair<const std::filesystem::path*, double>> search(const std::string &query) const = 0;
+        virtual std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const = 0;
     };
 
     class InMemoryModel : public Model
     {
         DocFreq m_df;
-        TermFreqPerDoc m_tfpd;
+        Docs m_docs;
 
         friend class App;
         friend class FileSystem;
@@ -52,7 +59,7 @@ namespace seepp
         double invDocFreq(const std::string &term) const;
 
         void addDocument(const std::filesystem::path &filePath, const std::string &content) override;
-        std::vector<std::pair<const std::filesystem::path*, double>> search(const std::string &query) const override;
+        std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const override;
     };
 
     class SQLiteModel : public Model
@@ -69,6 +76,6 @@ namespace seepp
         bool commit() const;
 
         void addDocument(const std::filesystem::path &filePath, const std::string &content) override;
-        std::vector<std::pair<const std::filesystem::path*, double>> search(const std::string &query) const override;
+        std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const override;
     };
 }

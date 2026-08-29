@@ -18,13 +18,13 @@ namespace seepp
     public:
         Server(const FileSystem &fs);
 
-        void init(const std::string &address, const Model &model) const;
+        void init(const std::string &address, const Model *model) const;
 
         void serveStaticFile(httplib::Response &res, const std::string &filePath, const std::string &contentType) const;
         void serve404(httplib::Response &res) const;
         void serve500(httplib::Response &res) const;
         void serve400(httplib::Response &res, const std::string &message) const;
-        void serveAPISearch(const Model &model, const httplib::Request &req, httplib::Response &res) const;
-        void serveRequest(const Model &model, const httplib::Request &req, httplib::Response &res) const;
+        void serveAPISearch(const Model *model, const httplib::Request &req, httplib::Response &res) const;
+        void serveRequest(const Model *model, const httplib::Request &req, httplib::Response &res) const;
     };
 }

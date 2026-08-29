@@ -5,12 +5,16 @@
 #include <fstream>
 #include <iostream>
 
+#include "Model.hpp"
 #include "pugixml.hpp"
 
 #include <cerrno>
 #include <cstring>
 
+#include <istream>
 #include <nlohmann/json.hpp>
+#include <sstream>
+#include <stdexcept>
 
 namespace seepp
 {
@@ -58,7 +62,35 @@ namespace seepp
         return content;
     }
 
-    void FileSystem::loadXMLDir(const std::filesystem::path &path, Model *model) const
+    std::string FileSystem::loadTXT(const std::filesystem::path &path) const
+    {
+        auto filePath = resolveDir(path);
+
+        std::ifstream file(filePath);
+        std::ostringstream buffer;
+
+        if(!file)
+            throw std::runtime_error("Failed to open file: " + filePath.string());
+
+        buffer << file.rdbuf();
+
+        return buffer.str();
+    }
+
+    std::string FileSystem::loadFile(const std::filesystem::path &path) const
+    {
+        auto ext = path.extension();
+
+        if(ext == ".xtml" || ext == ".xml")
+            return loadXML(path);
+
+        else if(ext == ".txt" || ext == ".md")
+            return loadTXT(path);
+
+        throw std::runtime_error("Unsupported extension: " + ext.string());
+    }
+
+    void FileSystem::loadXMLDir(const std::filesystem::path &path, Model *model, size_t &skipped) const
     {
         auto dirPath = resolveDir(path);
         std::error_code ec;
@@ -81,7 +113,7 @@ namespace seepp
 
             if(std::filesystem::is_directory(status))
             {
-                loadXMLDir(filePath, model);
+                loadXMLDir(filePath, model, skipped);
                 continue;
             }
 
@@ -91,12 +123,13 @@ namespace seepp
 
             try
             {
-                content = loadXML(filePath);
+                content = loadFile(filePath);
             }
 
             catch(const std::exception &e)
             {
                 m_logger.err() << e.what() << '\n';
+                ++skipped;
                 continue;
             }
 
@@ -123,10 +156,10 @@ namespace seepp
 
         model.m_df = j.at("df").get<DocFreq>();
 
-        model.m_tfpd.clear();
+        model.m_docs.clear();
 
         for(const auto &[path, doc] : j.at("tfpd").items())
-            model.m_tfpd.try_emplace(std::filesystem::path(path), doc.at("size").get<size_t>(), doc.at("tf").get<TermFreq>());
+            model.m_docs.try_emplace(std::filesystem::path(path), doc.at("tf").get<TermFreq>(), doc.at("size").get<size_t>());
     }
 
     void FileSystem::loadModel(const std::filesystem::path &path, SQLiteModel &model) const
@@ -144,7 +177,8 @@ namespace seepp
 
         model.m_connection.reset(raw);
 
-        if(!model.execute(R"sql(
+        if(!model.execute(
+        R"sql(
             CREATE TABLE IF NOT EXISTS Documents
             (
                 id INTEGER NOT NULL PRIMARY KEY,
@@ -156,7 +190,8 @@ namespace seepp
         )sql"))
             throw std::runtime_error("Failed to create table: Documents");
 
-        if(!model.execute(R"sql(
+        if(!model.execute(
+        R"sql(
             CREATE TABLE IF NOT EXISTS TermFreq
             (
                 term TEXT,
@@ -164,12 +199,13 @@ namespace seepp
                 freq INTEGER,
                 
                 UNIQUE(term, doc_id),
-                FOREIGN_KEY(doc_id) REFERENCES Documents(id)
+                FOREIGN KEY(doc_id) REFERENCES Documents(id)
             );
         )sql"))
             throw std::runtime_error("Failed to create table: TermFreq");
 
-        if(!model.execute(R"sql(
+        if(!model.execute(
+        R"sql(
             CREATE TABLE IF NOT EXISTS DocFreq
             (
                 term TEXT,
@@ -179,6 +215,15 @@ namespace seepp
             );
         )sql"))
             throw std::runtime_error("Failed to create table: DocFreq");
+    }
+
+    void FileSystem::loadModel(const std::filesystem::path &modelPath, Model *model) const
+    {
+        if(auto a = dynamic_cast<InMemoryModel *>(model))
+            loadModel(modelPath, *a);
+
+        else if(auto b = dynamic_cast<SQLiteModel *>(model))
+            loadModel(modelPath, *b);
     }
 
     // void FileSystem::checkIndex(const std::filesystem::path &path) const
@@ -202,12 +247,12 @@ namespace seepp
 
         j["df"] = model.m_df;
 
-        for(const auto &[path, doc] : model.m_tfpd)
+        for(const auto &[path, doc] : model.m_docs)
         {
             j["tfpd"][path.string()] =
             {
-                {"size", doc.first},
-                {"tf", doc.second}  
+                {"size", doc.count},
+                {"tf", doc.tf}
             };
         }
 

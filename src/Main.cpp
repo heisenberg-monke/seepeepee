@@ -26,9 +26,10 @@ int main(int argc, char **argv)
             throw std::runtime_error("No subcommand is given.");
 
         bool debug = false;
+        bool sqlite = false;
         Subcommand subcommand = Subcommand::NONE;
         
-        std::filesystem::path indexPath;
+        std::string indexPath;
         std::string jsonName;
         std::string query;
         std::string address;
@@ -48,6 +49,9 @@ int main(int argc, char **argv)
             if(arg == "--debug" || arg == "-D")
                 debug = true;
 
+            else if(arg == "--sqlite" || arg == "-Sq")
+                sqlite = true;
+
             else if(arg == "--help" || arg == "-H")
                 setCommand(Subcommand::HELP);
 
@@ -59,9 +63,7 @@ int main(int argc, char **argv)
                     throw std::runtime_error("No folder given for indexing.");
 
                 indexPath = argv[++i];
-
-                if(i + 1 < argc && argv[i+1][0] != '-')
-                    jsonName = argv[++i];
+                jsonName = (i + 1 < argc && argv[i+1][0] != '-') ? argv[++i] : "index";
             }
 
             else if(arg == "--search" || arg == "-S")
@@ -103,7 +105,7 @@ int main(int argc, char **argv)
 
         try
         {
-            seepp::App app;
+            seepp::App app(sqlite);
 
             switch(subcommand)
             {
@@ -112,15 +114,15 @@ int main(int argc, char **argv)
                     break;
 
                 case Subcommand::INDEX:
-                    app.indexFolder(indexPath, jsonName);
+                    app.indexFolder(indexPath, jsonName + (sqlite ? ".db" : ".json"));
                     break;
 
                 case Subcommand::SEARCH:
-                    app.search(indexPath, query);
+                    app.search(indexPath + (sqlite ? ".db" : ".json"), query);
                     break;
 
                 case Subcommand::SERVE:
-                    app.serve(indexPath, address);
+                    app.serve(indexPath + (sqlite ? ".db" : ".json"), address);
                     break;
             }
         }

@@ -7,7 +7,7 @@ namespace seepp
     Server::Server(const FileSystem &fs)
         : m_logger(Logger::getLogger()), m_fs(fs) {}
 
-    void Server::init(const std::string &address, const Model &model) const
+    void Server::init(const std::string &address, const Model *model) const
     {
         httplib::Server server;
         const int port = 8080;
@@ -71,15 +71,15 @@ namespace seepp
         res.set_content("400: " + message, "text/plain");
     }
 
-    void Server::serveAPISearch(const Model &model, const httplib::Request &req, httplib::Response &res) const
+    void Server::serveAPISearch(const Model *model, const httplib::Request &req, httplib::Response &res) const
     {
         try
         {
-            auto result = model.search(req.body);
+            auto result = model->search(req.body);
             nlohmann::json json = nlohmann::json::array();
 
             for(size_t i = 0; i < std::min<size_t>(20, result.size()); ++i)
-                json.push_back({result[i].first->string(), result[i].second});
+                json.push_back({result[i].first.string(), result[i].second});
                 
             res.set_content(json.dump(), "application/json");
         }
@@ -97,7 +97,7 @@ namespace seepp
         }
     }
 
-    void Server::serveRequest(const Model &model, const httplib::Request &req, httplib::Response &res) const
+    void Server::serveRequest(const Model *model, const httplib::Request &req, httplib::Response &res) const
     {
         auto htmlPath = m_fs.resolveDir("index.html").string();
         auto jsPath = m_fs.resolveDir("index.js").string();

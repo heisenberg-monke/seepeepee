@@ -2,7 +2,6 @@
 
 #include <optional>
 
-#include <vector>
 #include <string>
 
 #include <string_view>

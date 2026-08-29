@@ -1,6 +1,6 @@
 #include "Lexer.hpp"
 
-#include <cctype>
+#include <vector>
 
 #include <unicode/utf8.h>
 #include <unicode/unistr.h>
