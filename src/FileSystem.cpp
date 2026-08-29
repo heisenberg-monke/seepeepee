@@ -82,7 +82,7 @@ namespace seepp
         if(ext == ".xhtml" || ext == ".xml")
             return loadXML(path);
 
-        else if(ext == ".txt" || ext == ".md")
+        else if(ext == ".txt" || ext == ".md" || ext == ".html")
             return loadTXT(path);
 
         throw std::runtime_error("Unsupported extension: " + ext.string());

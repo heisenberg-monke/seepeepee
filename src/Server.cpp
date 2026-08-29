@@ -120,7 +120,19 @@ namespace seepp
                 serveStaticFile(res, jsPath, "text/javascript; charset=utf-8");
 
             else if(req.target.starts_with("/document/"))
-                serveStaticFile(res, m_fs.resolveDir("docs.gl") / req.target.substr(10), "application/xhtml+xml");
+            {
+                auto filePath = m_fs.resolveDir("docs.gl") / req.target.substr(10);
+                auto ext = filePath.extension();
+
+                if(ext == ".xhtml" || ext == ".xml")
+                    serveStaticFile(res, filePath, "application/xhtml+xml; charset=utf-8");
+
+                else if(ext == ".html")
+                    serveStaticFile(res, filePath, "text/html");
+
+                else if(ext == ".txt" || ext == ".md")
+                    serveStaticFile(res, filePath, "text/plain; charset=utf-8");
+            }
 
             else
                 serve404(res);
