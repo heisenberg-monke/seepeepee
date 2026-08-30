@@ -42,7 +42,7 @@ namespace seepp
         {
             InMemoryModel model;
 
-            m_fs.loadXMLDir(dirPath, &model, skipped);
+            skipped = m_fs.loadDir(dirPath, &model);
             m_fs.saveModel(model, jsonName);
         }
         
@@ -53,7 +53,7 @@ namespace seepp
 
             m_fs.loadModel(jsonName, model);
             model.begin();
-            m_fs.loadXMLDir(dirPath, &model, skipped);
+            skipped = m_fs.loadDir(dirPath, &model);
             model.commit();
         }
 

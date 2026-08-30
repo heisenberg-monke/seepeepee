@@ -22,6 +22,14 @@ add_sqlite(BACKEND PUBLIC VERSION 3.46.0)
 file(GLOB SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 
 find_package(ICU REQUIRED COMPONENTS uc)
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules (
+    POPPLER_CPP
+    REQUIRED
+    IMPORTED_TARGET
+    poppler-cpp
+)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 add_subdirectory(external/pugixml)
@@ -39,6 +47,7 @@ target_link_libraries(${PROJECT_NAME}
         pugixml
         ICU::uc
         SQLite::SQLite3
+        PkgConfig::POPPLER_CPP
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE 

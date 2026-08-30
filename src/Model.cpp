@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -72,8 +74,26 @@ namespace seepp
         return result;
     }
 
-    void InMemoryModel::addDocument(const std::filesystem::path &filePath, const std::string &content)
+    std::vector<std::filesystem::path> InMemoryModel::documents() const
     {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        std::vector<std::filesystem::path> docs;
+        docs.reserve(m_docs.size());
+
+        for(const auto &[path, _] : m_docs)
+            docs.emplace_back(path);
+
+        return docs;
+    }
+
+    void InMemoryModel::addDocument(const std::filesystem::path &filePath, const std::string &content, std::filesystem::file_time_type lastModified)
+    {
+        if(!needsIndexing(filePath, lastModified))
+            return;
+
+        removeDocument(filePath);
+
         TermFreq tf;
         Lexer lexer(content);
 
@@ -84,11 +104,49 @@ namespace seepp
             tf[token.value()]++;
             ++count;
         }
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        
+        m_docs.try_emplace(filePath, tf, count, lastModified);
         
         for(const auto &[term, _] : tf)
-            m_df[term]++;
+            ++m_df[term];
+    }
 
-        m_docs.try_emplace(filePath, tf, count);
+    void InMemoryModel::removeDocument(const std::filesystem::path &filePath)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto existing = m_docs.find(filePath);
+
+        if(existing == m_docs.end())
+            return;
+
+        for(const auto &[term, _] : existing->second.tf)
+        {
+            auto df = m_df.find(term);
+
+            if(df == m_df.end())
+                continue;
+
+            if(df->second <= 1)
+                m_df.erase(df);
+
+            else
+                --df->second;
+        }
+
+        m_docs.erase(existing);
+    }
+
+    bool InMemoryModel::needsIndexing(const std::filesystem::path &filePath, std::filesystem::file_time_type lastModified) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto existing = m_docs.find(filePath);
+
+        if(existing == m_docs.end())
+            return true;
+
+        return existing->second.lastModified != lastModified;
     }
 
     bool SQLiteModel::execute(const std::string &statement) const
@@ -121,11 +179,16 @@ namespace seepp
             throw std::runtime_error(operation + ": " + sqlite3_errmsg(m_connection.get()));
     }
 
-    void SQLiteModel::addDocument(const std::filesystem::path &filePath, const std::string &content)
+    void SQLiteModel::addDocument(const std::filesystem::path &filePath, const std::string &content, std::filesystem::file_time_type lastModified)
     {
-        Lexer lexer(content);
+        if(!needsIndexing(filePath, lastModified))
+            return;
 
+        removeDocument(filePath);
+
+        Lexer lexer(content);
         TermFreq tf;
+
         size_t count = 0;
 
         while(auto token = lexer.nextToken())
@@ -134,21 +197,26 @@ namespace seepp
             ++count;
         }
 
-        sqlite3_stmt *rawStatement = nullptr;
+        std::lock_guard<std::mutex> lock(m_mutex);
+
         const std::string path = filePath.string();
+        const auto lastModifiedValue = lastModified.time_since_epoch().count();
 
+        sqlite3_stmt *rawStatement = nullptr;
         Statement statement(rawStatement);
+
         sqlite3_int64 docID;
-
         {
-            const char *query =  "INSERT INTO Documents(path, term_count) VALUES(?, ?);";
+            const char *query =  "INSERT INTO Documents(path, term_count, last_modified) VALUES(?, ?, ?);";
 
-            check(sqlite3_prepare_v2( m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare query");
+            rawStatement = nullptr;
 
+            check(sqlite3_prepare_v2( m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare document insert");
             statement.reset(rawStatement);
 
             check(sqlite3_bind_text(statement.get(), 1, path.c_str(), static_cast<int>(path.size()), SQLITE_TRANSIENT), "Failed to bind path");
             check(sqlite3_bind_int64(statement.get(), 2, static_cast<sqlite3_int64>(count)), "Failed to bind term count");
+            check(sqlite3_bind_int64(statement.get(), 3, static_cast<sqlite3_int64>(lastModifiedValue)), "Failed to bind last modified");
 
             check(sqlite3_step(statement.get()), "Failed to execute query");
 
@@ -188,6 +256,130 @@ namespace seepp
 
                     check(sqlite3_step(statement.get()), "Failed to execute query");
             }
+        }
+    }
+
+    void SQLiteModel::removeDocument(const std::filesystem::path &filePath)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        const std::string path = filePath.string();
+
+        sqlite3_stmt *rawStatement = nullptr;
+        Statement statement(rawStatement);
+
+        sqlite3_int64 docID = -1;
+        {
+            const char *query =
+                "SELECT id FROM Documents "
+                "WHERE path = ?;";
+
+            check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare document lookup");
+            statement.reset(rawStatement);
+
+            check(sqlite3_bind_text(statement.get(), 1, path.c_str(), static_cast<int>(path.size()), SQLITE_TRANSIENT), "Failed to bind path");
+
+            const int rc = sqlite3_step(statement.get());
+
+            if(rc == SQLITE_DONE)
+                return;
+
+            check(rc, "Failed ot execute document lookup");
+
+            docID = sqlite3_column_int64(statement.get(), 0);
+        }
+
+        TermFreq oldTf;
+        {
+            const char *query =
+                "SELECT term, freq FROM TermFreq "
+                "WHERE doc_id = ?;";
+
+            rawStatement = nullptr;
+
+            check(sqlite3_prepare_v2( m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare old term frequency lookup");
+            statement.reset(rawStatement);
+
+            check(sqlite3_bind_int64(statement.get(), 1, docID), "Failed to bind document ID");
+
+            while(true)
+            {
+                const int rc = sqlite3_step(statement.get());
+
+                if(rc == SQLITE_DONE)
+                    break;
+
+                check(rc, "Failed ot read old term frequencies");
+
+                const char *term = reinterpret_cast<const char *>(sqlite3_column_text(statement.get(), 0));
+                const auto freq = sqlite3_column_int64(statement.get(), 1);
+
+                if(term)
+                    oldTf[term] = static_cast<size_t>(freq);
+            }
+        }
+
+        for(const auto &[term, _] : oldTf)
+        {
+            {
+                const char *query =
+                    "UPDATE DocFreq SET freq = freq - 1 "
+                    "WHERE term = ?;";
+
+                rawStatement = nullptr;
+
+                check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare DocFreq decrement");
+                statement.reset(rawStatement);
+
+                check(sqlite3_bind_text(statement.get(), 1, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
+
+                check(sqlite3_step(statement.get()), "Failed to decrement DocFreq");
+            }
+
+            {
+                const char *query =
+                    "DELETE FROM DocFreq "
+                    "WHERE term = ? AND freq <= 0;";
+
+                rawStatement = nullptr;
+
+                check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare DocFreq decrement");
+                statement.reset(rawStatement);
+
+                check(sqlite3_bind_text(statement.get(), 1, term.c_str(), static_cast<int>(term.size()), SQLITE_TRANSIENT), "Failed to bind term");
+
+                check(sqlite3_step(statement.get()), "Failed to clean DocFreq");
+            }
+        }
+
+        {
+            const char *query =
+                "DELETE FROM TermFreq "
+                "WHERE doc_id = ?;";
+
+            rawStatement = nullptr;
+
+            check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare DocFreq decrement");
+            statement.reset(rawStatement);
+
+            check(sqlite3_bind_int64(statement.get(), 1, docID), "Failed to bind document ID");
+
+            check(sqlite3_step(statement.get()), "Failed to delete old TermFreq");
+        }
+
+        {
+            const char *query =
+                "DELETE FROM Documents "
+                "WHERE id = ?;";
+
+            rawStatement = nullptr;
+
+            check(sqlite3_prepare_v2(m_connection.get(), query, -1, &rawStatement, nullptr), "Failed to prepare DocFreq decrement");
+            statement.reset(rawStatement);
+
+            check(sqlite3_bind_int64(statement.get(), 1, docID), "Failed to bind document ID");
+
+            check(sqlite3_step(statement.get()), "Failed to update document");
         }
     }
 
@@ -268,5 +460,66 @@ namespace seepp
         });
         
         return result;
+    }
+
+    std::vector<std::filesystem::path> SQLiteModel::documents() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        std::vector<std::filesystem::path> docs;
+
+        sqlite3_stmt *raw = nullptr;
+        Statement statement(raw);
+
+        const char *query = "SELECT path FROM Documents;";
+
+        check(sqlite3_prepare_v2(m_connection.get(), query, -1, &raw, nullptr), "Failed to prepare document list");
+        statement.reset(raw);
+
+        while(true)
+        {
+            const int rc = sqlite3_step(statement.get());
+
+            if(rc == SQLITE_DONE)
+                break;
+
+            check(rc, "Failed to read document list");
+
+            const char *path = reinterpret_cast<const char *>(sqlite3_column_text(statement.get(), 0));
+
+            if(path)
+                docs.emplace_back(path);
+        }
+
+        return docs;
+    }
+
+    bool SQLiteModel::needsIndexing(const std::filesystem::path &filePath, std::filesystem::file_time_type lastModified) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        
+        const std::string path = filePath.string();
+        const auto lastModifiedValue = static_cast<sqlite3_int64>(lastModified.time_since_epoch().count());
+
+        sqlite3_stmt *raw = nullptr;
+        Statement statement(raw);
+
+        const char *query =
+            "SELECT last_modified FROM Documents "
+            "WHERE path = ?; ";
+
+        check(sqlite3_prepare_v2(m_connection.get(), query, -1, &raw, nullptr), "Failed to prepare modification time lookup");
+        statement.reset(raw);
+
+        check(sqlite3_bind_text(statement.get(), 1, path.c_str(), static_cast<int>(path.size()), SQLITE_TRANSIENT), "Failed to bind path");
+
+        const int rc = sqlite3_step(statement.get());
+
+        if(rc == SQLITE_DONE)
+            return true;
+
+        check(rc, "Failed to check modification time");
+
+        return sqlite3_column_int64(statement.get(), 0) != lastModifiedValue;
     }
 }

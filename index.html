@@ -1,11 +1,220 @@
-<html>
-    <head>
-        <title>SeePeePee</title>
-    </head>
-    <body>
-        <h1>Provide your query:</h1>
-        <input id="query" type="text" />
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeePeePee</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --surface: #1a1d24;
+            --border: #2a2e38;
+            --text: #e6e8ee;
+            --muted: #9aa0ad;
+            --accent: #6c9eff;
+            --accent-hover: #8ab4ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2.5rem 1rem;
+            line-height: 1.5;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 720px;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.25rem;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            text-align: center;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+
+        .search-box {
+            position: relative;
+            margin-bottom: 1.75rem;
+        }
+
+        #query {
+            width: 100%;
+            padding: 0.9rem 1.1rem;
+            font-size: 1.05rem;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        #query:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(108, 158, 255, 0.2);
+        }
+
+        #query::placeholder {
+            color: var(--muted);
+        }
+
+        .status {
+            height: 1.25rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.875rem;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        #results {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .result {
+            display: block;
+            padding: 0.85rem 1.1rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            text-decoration: none;
+            color: var(--text);
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .result:hover {
+            border-color: var(--accent);
+            background: #1f232c;
+        }
+
+        .result path {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.95rem;
+            word-break: break-all;
+        }
+
+        .empty {
+            text-align: center;
+            color: var(--muted);
+            padding: 2rem 1rem;
+            font-size: 0.95rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SeePeePee</h1>
+        <p class="subtitle">Offline local file search</p>
+
+        <div class="search-box">
+            <input id="query" type="text" placeholder="Search your files…" autocomplete="off" autofocus>
+        </div>
+
+        <div class="status" id="status"></div>
         <div id="results"></div>
-        <script src="index.js"></script>
-    </body>
+    </div>
+
+    <script>
+        const queryInput = document.getElementById("query");
+        const resultsEl  = document.getElementById("results");
+        const statusEl   = document.getElementById("status");
+
+        let currentController = null;
+
+        async function search(prompt) {
+            const term = prompt.trim();
+            if (!term) {
+                resultsEl.innerHTML = "";
+                statusEl.textContent = "";
+                return;
+            }
+
+            // Cancel any in-flight request
+            if (currentController) {
+                currentController.abort();
+            }
+            currentController = new AbortController();
+
+            statusEl.textContent = "Searching…";
+            resultsEl.innerHTML = "";
+
+            try {
+                const response = await fetch("/api/search", {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain" },
+                    body: term,
+                    signal: currentController.signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const json = await response.json();
+
+                statusEl.textContent = json.length
+                    ? `${json.length} result${json.length === 1 ? "" : "s"}`
+                    : "No results";
+
+                resultsEl.innerHTML = "";
+
+                if (json.length === 0) {
+                    resultsEl.innerHTML = `<div class="empty">Nothing found for “${term}”</div>`;
+                    return;
+                }
+
+                for (const [path] of json) {
+                    const link = document.createElement("a");
+                    link.href = "/document/" + path;
+                    link.className = "result";
+                    link.innerHTML = `<span class="path">${path}</span>`;
+                    resultsEl.appendChild(link);
+                }
+            } catch (err) {
+                if (err.name === "AbortError") return; // expected when cancelling
+                statusEl.textContent = "Search failed";
+                resultsEl.innerHTML = `<div class="empty">Could not reach the search API</div>`;
+                console.error(err);
+            }
+        }
+
+        // Search on Enter
+        queryInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                search(queryInput.value);
+            }
+        });
+
+        // Optional: live search while typing (debounced)
+        let debounceTimer;
+        queryInput.addEventListener("input", () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                search(queryInput.value);
+            }, 300);
+        });
+    </script>
+</body>
 </html>

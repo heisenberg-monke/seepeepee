@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include <filesystem>
+#include <mutex>
 
 #include <sqlite3.h>
 
@@ -20,6 +21,7 @@ namespace seepp
     {
         TermFreq tf;
         size_t count;
+        std::filesystem::file_time_type lastModified;
     };
     
     using Docs = std::unordered_map<std::filesystem::path, Doc>;
@@ -37,13 +39,19 @@ namespace seepp
     {
     protected:
         Logger &m_logger;
+        mutable std::mutex m_mutex;
 
     public:
         Model();
         virtual ~Model() = default;
 
-        virtual void addDocument(const std::filesystem::path &filePath, const std::string &content) = 0;
+        virtual bool needsIndexing(const std::filesystem::path &filePath, std::filesystem::file_time_type lastModified) const = 0;
+
+        virtual void addDocument(const std::filesystem::path &filePath, const std::string &content, std::filesystem::file_time_type lastModified) = 0;
+        virtual void removeDocument(const std::filesystem::path &filePath) = 0;
+
         virtual std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const = 0;
+        virtual std::vector<std::filesystem::path> documents() const = 0;
     };
 
     class InMemoryModel : public Model
@@ -58,8 +66,13 @@ namespace seepp
         double termFreq(const std::string &term, size_t n, const TermFreq &tf) const;
         double invDocFreq(const std::string &term) const;
 
-        void addDocument(const std::filesystem::path &filePath, const std::string &content) override;
+        bool needsIndexing(const std::filesystem::path &filePath, std::filesystem::file_time_type lastModified) const override;
+
+        void addDocument(const std::filesystem::path &filePath, const std::string &content, std::filesystem::file_time_type lastModified) override;
+        void removeDocument(const std::filesystem::path &filePath) override;
+
         std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const override;
+        std::vector<std::filesystem::path> documents() const override;
     };
 
     class SQLiteModel : public Model
@@ -77,7 +90,12 @@ namespace seepp
 
         void check(int rc, const std::string &operation) const;
 
-        void addDocument(const std::filesystem::path &filePath, const std::string &content) override;
+        bool needsIndexing(const std::filesystem::path &filePath, std::filesystem::file_time_type lastModified) const override;
+
+        void addDocument(const std::filesystem::path &filePath, const std::string &content, std::filesystem::file_time_type lastModified) override;
+        void removeDocument(const std::filesystem::path &filePath) override;
+        
         std::vector<std::pair<std::filesystem::path, double>> search(const std::string &query) const override;
+        std::vector<std::filesystem::path> documents() const override;
     };
 }

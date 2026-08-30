@@ -29,7 +29,7 @@ namespace seepp
 
     void Server::serveStaticFile(httplib::Response &res, const std::string &filePath, const std::string &contentType) const
     {
-        std::ifstream file(filePath);
+        std::ifstream file(filePath, std::ios::binary);
 
         if(!file)
         {
@@ -76,14 +76,13 @@ namespace seepp
     {
         try
         {
+            std::filesystem::path root(PROJECT_ROOT);
             auto result = model->search(req.body);
-            auto root = m_fs.resolveDir("docs.gl");
 
             nlohmann::json json = nlohmann::json::array();
 
             for(size_t i = 0; i < std::min<size_t>(20, result.size()); ++i)
                 json.push_back({std::filesystem::relative(result[i].first, root).string(), result[i].second});
-                
                 
             res.set_content(json.dump(), "application/json");
         }
@@ -121,7 +120,7 @@ namespace seepp
 
             else if(req.target.starts_with("/document/"))
             {
-                auto filePath = m_fs.resolveDir("docs.gl") / req.target.substr(10);
+                auto filePath = m_fs.resolveDir(httplib::decode_uri(req.target.substr(10)));
                 auto ext = filePath.extension();
 
                 if(ext == ".xhtml" || ext == ".xml")
@@ -132,6 +131,12 @@ namespace seepp
 
                 else if(ext == ".txt" || ext == ".md")
                     serveStaticFile(res, filePath, "text/plain; charset=utf-8");
+
+                else if(ext == ".pdf")
+                    serveStaticFile(res, filePath, "application/pdf");
+
+                else
+                    serve404(res);
             }
 
             else

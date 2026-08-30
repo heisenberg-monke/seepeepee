@@ -12,6 +12,8 @@ namespace seepp
     class FileSystem
     {
         Logger &m_logger;
+
+        void collectFiles(const std::filesystem::path &dir, std::vector<std::filesystem::path> &files) const;
         
     public:
         FileSystem();
@@ -20,9 +22,10 @@ namespace seepp
         
         std::string loadXML(const std::filesystem::path &path) const;
         std::string loadTXT(const std::filesystem::path &path) const;
+        std::string loadPDF(const std::filesystem::path &path) const;
         std::string loadFile(const std::filesystem::path &path) const;
         
-        void loadXMLDir(const std::filesystem::path &dirPath, Model *model, size_t &skipped) const;
+        size_t loadDir(const std::filesystem::path &dirPath, Model *model) const;
 
         void loadModel(const std::filesystem::path &modelPath, InMemoryModel &model) const;
         void loadModel(const std::filesystem::path &modelPath, SQLiteModel &model) const;
